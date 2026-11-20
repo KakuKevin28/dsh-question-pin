@@ -1,0 +1,59 @@
+{
+  "name": "dsh-question-pin",
+  "version": "0.1.0",
+  "main": "./index.js",
+  "type": "module",
+  "description": "你问过的问题会跟着滚动，一直悬浮在长回答旁边，随时知道自己当初问的是什么。",
+  "license": "MIT",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "cordis",
+    "web-client",
+    "question"
+  ],
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0",
+    "dsh": ">=0.2.0-rc.1"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  },
+  "author": {
+    "name": "KakuKevin28",
+    "url": "https://github.com/KakuKevin28"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KakuKevin28/dsh-question-pin.git"
+  },
+  "homepage": "https://github.com/KakuKevin28/dsh-question-pin#readme",
+  "bugs": {
+    "url": "https://github.com/KakuKevin28/dsh-question-pin/issues"
+  }
+}
