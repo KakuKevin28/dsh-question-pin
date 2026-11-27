@@ -60,6 +60,7 @@ window.__ModuleLoader__.load({
       collapse: '收起成小钉',
       expand: '展开问题',
       image: '图片',
+      more: '另有 {n} 个附件未显示',
     }
 
     const EN = {
@@ -71,6 +72,7 @@ window.__ModuleLoader__.load({
       collapse: 'Collapse to a pin',
       expand: 'Show the question',
       image: 'Image',
+      more: '{n} more attachments not shown',
     }
 
     const CSS = `
@@ -91,6 +93,7 @@ window.__ModuleLoader__.load({
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  max-height: calc(100vh - 24px);
 }
 .dsh-qp-head {
   display: flex;
@@ -162,6 +165,8 @@ window.__ModuleLoader__.load({
 }
 .dsh-qp-text {
   --dsh-qp-line: calc(22px + var(--dsh-content-font-delta, 0px));
+  /* Allow the card's max-height to shrink the text area rather than overflowing. */
+  min-height: 0;
   margin: 0;
   padding: 0 12px 12px;
   /* Three lines by default; anything longer scrolls inside the card. */
@@ -197,16 +202,21 @@ window.__ModuleLoader__.load({
 }
 .dsh-qp-thumb {
   display: block;
+  flex: none;
   box-sizing: border-box;
-  width: 100%;
-  /* A fixed band keeps the card a predictable height whatever the image's
-     aspect ratio is; cover crops instead of letterboxing. */
-  min-height: 48px;
-  max-height: 96px;
+  width: 44px;
+  height: 44px;
   object-fit: cover;
   border-radius: 8px;
   border: 1px solid var(--dsw-alias-border-l3);
   background: var(--dsw-alias-bg-layer-2);
+}
+/* One image keeps the full band; multiple attachments stay in a compact row. */
+.dsh-qp-thumb:only-child {
+  width: 100%;
+  height: auto;
+  min-height: 48px;
+  max-height: 96px;
 }
 .dsh-qp-file {
   display: inline-flex;
@@ -229,6 +239,14 @@ window.__ModuleLoader__.load({
 .dsh-qp-file-icon {
   flex: none;
   display: inline-flex;
+}
+.dsh-qp-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 .dsh-qp-pin {
   display: inline-flex;
@@ -501,7 +519,17 @@ window.__ModuleLoader__.load({
         ? Math.round(Math.min(maxWidth, room))
         : Math.round(Math.min(288, Math.max(200, viewWidth - 32)))
       const left = beside ? Math.round(flowBox.right + gap) : Math.round(viewWidth - width - 16)
-      const top = Math.max(8, Math.min(Math.round(scrollBox.top + 10), Math.round(viewHeight * 0.5)))
+      const top = Math.max(8, Math.min(
+        Math.round(scrollBox.top + 10),
+        Math.round(viewHeight * 0.5),
+        // Reserve room for the floor height below, so a short viewport pulls
+        // the card up instead of letting it run off the bottom edge.
+        viewHeight - 172,
+      ))
+      // Aim for 160px, but never past the bottom edge: the floor gives way when
+      // the space below is shorter, so the card always fits the viewport.
+      const roomBelow = viewHeight - top
+      const maxHeight = Math.min(Math.max(160, roomBelow - 12), roomBelow)
       return {
         key: active.anchorKey,
         ordinal,
@@ -510,6 +538,7 @@ window.__ModuleLoader__.load({
         attachments: question.attachments,
         left,
         top,
+        maxHeight,
         width,
       }
     }
@@ -534,6 +563,7 @@ window.__ModuleLoader__.load({
         && sameAttachments(current.attachments, next.attachments)
         && current.left === next.left
         && current.top === next.top
+        && current.maxHeight === next.maxHeight
         && current.width === next.width
     }
 
@@ -609,20 +639,26 @@ window.__ModuleLoader__.load({
       const visible = view !== null
       const collapsed = visible && collapsedKey === view.key
 
-      // The card sits outside the scrollport, so a wheel over it must be handed
-      // back to the chat: that is exactly the scrolling the reader is doing.
+      // The card sits outside the scrollport, so a plain wheel over it must be
+      // handed back to the chat. Ctrl/Cmd+wheel is browser zoom, not reading,
+      // so it must pass through untouched.
       useEffect(() => {
         const node = rootRef.current
         if (node === null || !visible) return undefined
         const onWheel = event => {
+          if (event.ctrlKey || event.metaKey) return
           const scroller = scrollerRef.current
           if (scroller === null) return
           const area = textRef.current
           if (area !== null && area.contains(event.target)) {
+            // Let the text area scroll itself until it is genuinely at the edge
+            // in the direction of travel; only then does the chat take over.
+            // Testing scrollTop instead of scrollTop + deltaY keeps a short
+            // overflow reachable when one wheel step jumps past the limit.
             const limit = area.scrollHeight - area.clientHeight
             if (limit > 1) {
-              const next = area.scrollTop + event.deltaY
-              if (next > 0 && next < limit) return
+              if (event.deltaY > 0 && area.scrollTop < limit - 1) return
+              if (event.deltaY < 0 && area.scrollTop > 1) return
             }
           }
           const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? scroller.clientHeight : 1
@@ -705,10 +741,19 @@ window.__ModuleLoader__.load({
 
       const shown = view.attachments.slice(0, MAX_ATTACHMENTS)
       const hiddenCount = view.attachments.length - shown.length
+      const hiddenLabel = hiddenCount > 0
+        ? String(translate('more')).replace('{n}', String(hiddenCount))
+        : ''
       const attach = shown.length === 0 ? null : h('div', { className: 'dsh-qp-attach' },
         shown.map(attachmentNode),
         hiddenCount > 0
-          ? h('span', { key: 'more', className: 'dsh-qp-file' }, `+${hiddenCount}`)
+          ? h('span', { key: 'more', className: 'dsh-qp-file' },
+            // The tooltip lives on the hidden counter so the visible text and the
+            // screen-reader sentence below are never announced together.
+            h('span', { 'aria-hidden': 'true', title: hiddenLabel }, `+${hiddenCount}`),
+            // The visible "+N" says nothing to a screen reader, and a bare span
+            // has no role to hang a name on, so carry the sentence in real text.
+            h('span', { className: 'dsh-qp-sr' }, hiddenLabel))
           : null)
 
       const surface = collapsed
@@ -724,7 +769,7 @@ window.__ModuleLoader__.load({
           className: 'dsh-qp-card dsh-qp-surface',
           role: 'complementary',
           'aria-label': translate('label'),
-          style: { ...position, width: view.width + 'px' },
+          style: { ...position, width: view.width + 'px', maxHeight: view.maxHeight + 'px' },
         },
         h('div', { className: 'dsh-qp-head' },
           h('span', { className: 'dsh-qp-badge' }, String(view.ordinal)),
