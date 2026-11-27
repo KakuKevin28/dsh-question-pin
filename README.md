@@ -15,6 +15,7 @@
   - **收起**：收成一个小钉，只留序号。
 - 卡片不占正文空间、不随内容滚动；鼠标放在卡片上滚滚轮，卡片内容先滚，到边界后滚动交给聊天，不会卡住滚动。
 - 问题里的换行会保留；消息行上的时间、操作按钮等界面文字不会混进卡片。
+- 问题里带图片或文件时，卡片只显示缩略图或文件名：不带图片的界面文字，也不带文件类型和体积（`PDF 1.2 MB`）这些元信息；只有附件的提问同样会显示卡片。
 
 ## 细节
 
@@ -59,6 +60,7 @@ While you scroll through a long answer, the question you asked stays pinned next
 - Follows your reading position: it always shows the question that the visible part of the answer is replying to.
 - Three lines by default; longer questions scroll inside the card with a thin, theme-aware scrollbar.
 - Buttons: jump back to that question, copy it, or collapse to a small numbered pin.
+- Attachments in a question show up as a thumbnail or a file name only — no interface labels, no file type or size (`PDF 1.2 MB`). Questions that are nothing but an attachment still get a card.
 - Pure addition: it uses the public `conversation.input.overlay` slot and chat row attributes, never replaces built-in UI.
 - Colors come from DSH theme tokens, so light and dark mode follow automatically.
 

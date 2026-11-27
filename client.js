@@ -14,6 +14,9 @@
  *   scrollport's top edge. No shipped class name is read.
  * - The question text is read from that Turn's own user row, so the card shows
  *   the whole question instead of the 50-character navigation preview.
+ * - Attachments are read from the same row: an image becomes a thumbnail and a
+ *   file becomes its name, because the row's own text also carries the
+ *   attachment chrome (file type, byte size) that no one wants in the card.
  */
 window.__ModuleLoader__.load({
   id: 'dsh-question-pin',
@@ -36,7 +39,17 @@ window.__ModuleLoader__.load({
     const FLOW_SELECTOR = '[data-chat-flow]'
     /** DSH's per-message action row: copy/branch buttons plus the message clock. */
     const CHROME_SELECTOR = '[data-clock]'
+    /** The user row's attachment strip: image tiles and file cards live here. */
+    const ATTACHMENT_SELECTOR = '[data-message-attachments]'
+    /** The user row's text bubble — the only text container that is user-only. */
+    const BUBBLE_SELECTOR = '[data-message-bubble],[data-text-interaction-source]'
+    /** User-only markers, used to reject rows that hold no question at all. */
+    const USER_ROW_SELECTOR = '[data-message-bubble],[data-message-attachments]'
+    /** An image tile is a button before its pixels arrive, so match both states. */
+    const IMAGE_TILE_SELECTOR = 'button[data-variant],img'
+    const MAX_ATTACHMENTS = 3
     const NO_ITEMS = Object.freeze([])
+    const NO_ATTACHMENTS = Object.freeze([])
 
     const ZH = {
       label: '问题钉',
@@ -46,6 +59,7 @@ window.__ModuleLoader__.load({
       copied: '已复制',
       collapse: '收起成小钉',
       expand: '展开问题',
+      image: '图片',
     }
 
     const EN = {
@@ -56,6 +70,7 @@ window.__ModuleLoader__.load({
       copied: 'Copied',
       collapse: 'Collapse to a pin',
       expand: 'Show the question',
+      image: 'Image',
     }
 
     const CSS = `
@@ -174,6 +189,47 @@ window.__ModuleLoader__.load({
   outline: 2px solid var(--dsw-alias-brand-primary);
   outline-offset: -2px;
 }
+.dsh-qp-attach {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 12px 10px;
+}
+.dsh-qp-thumb {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  /* A fixed band keeps the card a predictable height whatever the image's
+     aspect ratio is; cover crops instead of letterboxing. */
+  min-height: 48px;
+  max-height: 96px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--dsw-alias-border-l3);
+  background: var(--dsw-alias-bg-layer-2);
+}
+.dsh-qp-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-bg-layer-2);
+}
+.dsh-qp-file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dsh-qp-file-icon {
+  flex: none;
+  display: inline-flex;
+}
 .dsh-qp-pin {
   display: inline-flex;
   align-items: center;
@@ -260,6 +316,17 @@ window.__ModuleLoader__.load({
 
     const CHECK_ICON = icon([h('path', { key: 'check', d: 'm3.5 8.5 3 2.5 6-6.5' })])
 
+    const FILE_ICON = icon([
+      h('path', { key: 'sheet', d: 'M9.5 2.5H5A1.5 1.5 0 0 0 3.5 4v8A1.5 1.5 0 0 0 5 13.5h6a1.5 1.5 0 0 0 1.5-1.5V5.5z' }),
+      h('path', { key: 'fold', d: 'M9.5 2.5v3h3' }),
+    ])
+
+    const IMAGE_ICON = icon([
+      h('rect', { key: 'frame', x: 2.5, y: 3.5, width: 11, height: 9, rx: 1.5 }),
+      h('circle', { key: 'dot', cx: 6, cy: 6.6, r: 0.9 }),
+      h('path', { key: 'hill', d: 'M3 11.5 6.6 8.4a1 1 0 0 1 1.3 0l2.2 1.9' }),
+    ])
+
     const CHEVRON_UP_ICON = icon([h('path', { key: 'up', d: 'M4 9.5 8 5.5l4 4' })])
 
     const CHEVRON_DOWN_ICON = icon([h('path', { key: 'down', d: 'M4 6.5 8 10.5l4-4' })])
@@ -283,31 +350,76 @@ window.__ModuleLoader__.load({
       return null
     }
 
+    /**
+     * The row's attachments, in the order the user attached them. An image
+     * contributes its loaded URL — its tile has no file name to show — and a
+     * file card contributes only its name: the second line of the card is the
+     * extension and byte size, which the card has no use for.
+     */
+    function readAttachments(row) {
+      const holder = row.querySelector(ATTACHMENT_SELECTOR)
+      if (holder === null) return NO_ATTACHMENTS
+      const found = []
+      for (const child of holder.children) {
+        const tile = child.matches(IMAGE_TILE_SELECTOR)
+          ? child
+          : child.querySelector(IMAGE_TILE_SELECTOR)
+        if (tile !== null) {
+          const image = tile.matches('img') ? tile : tile.querySelector('img')
+          const src = image === null ? '' : String(image.currentSrc || image.getAttribute('src') || '')
+          found.push({ kind: 'image', label: '', src })
+          continue
+        }
+        // The image tile's own label is an action ("open ..."), so only a
+        // non-image child may name itself through `title`.
+        const name = (child.getAttribute('title') ?? '').trim() || normalize(child.textContent ?? '').split('\n')[0]
+        if (name !== '') found.push({ kind: 'file', label: name, src: '' })
+      }
+      return found
+    }
+
     /** The whole question, not the navigation preview. */
     function readQuestion(row, fallback) {
-      // The user row ends with DSH's own chrome: a copy/branch action row whose
-      // clock span renders the message time (e.g. `11:44`). `innerText` reads
-      // the live tree so it keeps real line breaks and drops CSS-hidden text,
-      // then the chrome's own label is subtracted by value — its position sits
-      // at the end of the row, so the last occurrence is the one to remove.
-      const chrome = row.querySelector(CHROME_SELECTOR)
-      const stamp = chrome === null
-        ? ''
-        : String(chrome.innerText ?? chrome.textContent ?? '').trim()
-      let raw = typeof row.innerText === 'string' ? row.innerText : String(row.textContent ?? '')
-      let trimmed = false
-      if (stamp !== '') {
-        const index = raw.lastIndexOf(stamp)
-        if (index >= 0) {
-          raw = `${raw.slice(0, index)}${raw.slice(index + stamp.length)}`
-          trimmed = true
+      const attachments = readAttachments(row)
+      // The bubble holds the question and nothing else: the attachment strip,
+      // the copy/branch chrome and its clock are siblings, not children.
+      const bubble = row.querySelector(BUBBLE_SELECTOR)
+      let raw = ''
+      if (bubble !== null) {
+        raw = typeof bubble.innerText === 'string' ? bubble.innerText : String(bubble.textContent ?? '')
+      } else if (attachments.length === 0) {
+        // No bubble (e.g. an image-only question): the row itself is the only
+        // source left. The user row ends with DSH's own chrome: a copy/branch
+        // action row whose clock span renders the message time (e.g. `11:44`).
+        // `innerText` reads the live tree so it keeps real line breaks and
+        // drops CSS-hidden text, then the chrome's own label is subtracted by
+        // value — its position sits at the end of the row, so the last
+        // occurrence is the one to remove.
+        const chrome = row.querySelector(CHROME_SELECTOR)
+        const stamp = chrome === null
+          ? ''
+          : String(chrome.innerText ?? chrome.textContent ?? '').trim()
+        raw = typeof row.innerText === 'string' ? row.innerText : String(row.textContent ?? '')
+        let trimmed = false
+        if (stamp !== '') {
+          const index = raw.lastIndexOf(stamp)
+          if (index >= 0) {
+            raw = `${raw.slice(0, index)}${raw.slice(index + stamp.length)}`
+            trimmed = true
+          }
         }
+        // The chrome label did not appear verbatim: still drop a trailing
+        // standalone clock so an unexpected layout cannot leak the time.
+        if (!trimmed) raw = raw.replace(/\s*\d{1,2}:\d{2}(?::\d{2})?\s*$/, '')
       }
-      // The chrome label did not appear verbatim: still drop a trailing
-      // standalone clock so an unexpected layout cannot leak the time.
-      if (!trimmed) raw = raw.replace(/\s*\d{1,2}:\d{2}(?::\d{2})?\s*$/, '')
-      const text = normalize(raw)
-      return text.length >= 2 ? text : fallback
+      // A row with attachments and no bubble asks its question through the
+      // attachments alone; its remaining text is only the strip's own chrome
+      // (file size, "loading"), which must not be shown as the question.
+      let text = normalize(raw)
+      // The preview exists to fill in what the row cannot show; once the row
+      // shows its own attachments, a 50-character preview would be a downgrade.
+      if (text.length < 2 && attachments.length === 0) text = fallback
+      return { text: text.length >= 2 ? text : '', attachments }
     }
 
     /**
@@ -342,31 +454,41 @@ window.__ModuleLoader__.load({
         break
       }
 
-      const prompts = items.filter(item => typeof item.prompt === 'string' && item.prompt.trim() !== '')
-      if (prompts.length === 0) return null
-      const total = prompts.length
+      const total = items.length
 
       // Preferred: the Turn owning that top row. A row whose Turn is outside
       // the loaded window, or that carries no Turn at all, must not silence
       // the card, so the previous question-row scan stays as the fallback.
-      let active = topTurn === null ? null : prompts.find(item => item.turn === topTurn) ?? null
+      // Every item is a candidate, including Turns whose prompt preview is
+      // empty because the question was nothing but an image or a file.
+      let active = topTurn === null ? null : items.find(item => item.turn === topTurn) ?? null
       if (active === null) {
-        for (const item of prompts) {
+        for (const item of items) {
           const row = findRow(scroller, item.anchorKey)
           if (row === null) continue
+          // A row without these markers belongs to an answer or a status node,
+          // never to a question, so it must not be floated as one.
+          if (row.querySelector(USER_ROW_SELECTOR) === null) continue
           const box = row.getBoundingClientRect()
           if (box.height < 2 || box.bottom > readingLine) continue
           active = item
         }
       }
       if (active === null) return null
-      const ordinal = prompts.indexOf(active) + 1
+      const ordinal = items.indexOf(active) + 1
 
       // The whole question is on screen under the reading line: nothing to float.
       const questionRow = findRow(scroller, active.anchorKey)
       if (questionRow === null) return null
+      // A Turn can open without a user node at all; its anchor row is then an
+      // answer row, and floating it would show the answer as the question.
+      if (questionRow.querySelector(USER_ROW_SELECTOR) === null) return null
       const questionBox = questionRow.getBoundingClientRect()
       if (questionBox.height >= 2 && questionBox.top >= readingLine) return null
+
+      const preview = typeof active.prompt === 'string' ? active.prompt.trim() : ''
+      const question = readQuestion(questionRow, preview)
+      if (question.text === '' && question.attachments.length === 0) return null
 
       const viewWidth = window.innerWidth
       const viewHeight = window.innerHeight
@@ -384,11 +506,23 @@ window.__ModuleLoader__.load({
         key: active.anchorKey,
         ordinal,
         total,
-        text: readQuestion(questionRow, active.prompt.trim()),
+        text: question.text,
+        attachments: question.attachments,
         left,
         top,
         width,
       }
+    }
+
+    function sameAttachments(current, next) {
+      if (current === next) return true
+      if (current.length !== next.length) return false
+      for (let index = 0; index < current.length; index += 1) {
+        const a = current[index]
+        const b = next[index]
+        if (a.kind !== b.kind || a.label !== b.label || a.src !== b.src) return false
+      }
+      return true
     }
 
     function sameView(current, next) {
@@ -397,6 +531,7 @@ window.__ModuleLoader__.load({
         && current.ordinal === next.ordinal
         && current.total === next.total
         && current.text === next.text
+        && sameAttachments(current.attachments, next.attachments)
         && current.left === next.left
         && current.top === next.top
         && current.width === next.width
@@ -509,8 +644,13 @@ window.__ModuleLoader__.load({
       }, [view])
 
       const copy = useCallback(() => {
-        if (view === null || view.text === '') return
-        const text = view.text
+        if (view === null) return
+        // A question that is nothing but attachments has no text; its file
+        // names are the only part of it that can meaningfully be pasted.
+        const text = view.text !== ''
+          ? view.text
+          : view.attachments.filter(item => item.kind === 'file').map(item => item.label).join('\n')
+        if (text === '') return
         const key = view.key
         const clipboard = navigator.clipboard
         if (clipboard === undefined || typeof clipboard.writeText !== 'function') return
@@ -542,6 +682,35 @@ window.__ModuleLoader__.load({
         ...extra,
       }, children)
 
+      // One image keeps its whole width so it stays legible; files and any
+      // overflow collapse into pills on the same row.
+      const attachmentPill = (label, key, iconNode) => h('span', { key, className: 'dsh-qp-file', title: label },
+        h('span', { className: 'dsh-qp-file-icon' }, iconNode),
+        h('span', { className: 'dsh-qp-file-name' }, label))
+
+      const attachmentNode = (item, index) => {
+        if (item.kind !== 'image') return attachmentPill(item.label, `a${index}`, FILE_ICON)
+        // The tile exists before the pixels load, so an empty source is the
+        // loading state rather than an error.
+        if (item.src === '') return attachmentPill(translate('image'), `a${index}`, IMAGE_ICON)
+        return h('img', {
+          key: `a${index}`,
+          className: 'dsh-qp-thumb',
+          src: item.src,
+          alt: translate('image'),
+          loading: 'lazy',
+          draggable: false,
+        })
+      }
+
+      const shown = view.attachments.slice(0, MAX_ATTACHMENTS)
+      const hiddenCount = view.attachments.length - shown.length
+      const attach = shown.length === 0 ? null : h('div', { className: 'dsh-qp-attach' },
+        shown.map(attachmentNode),
+        hiddenCount > 0
+          ? h('span', { key: 'more', className: 'dsh-qp-file' }, `+${hiddenCount}`)
+          : null)
+
       const surface = collapsed
         ? h('button', {
           type: 'button',
@@ -566,7 +735,9 @@ window.__ModuleLoader__.load({
             action(translate('collapse'), () => setCollapsedKey(view.key), CHEVRON_UP_ICON),
           ),
         ),
-        h('div', {
+        attach,
+        // An image-only or file-only question has nothing left to show here.
+        view.text === '' ? null : h('div', {
           className: 'dsh-qp-text',
           ref: textRef,
           tabIndex: 0,
