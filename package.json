@@ -1,6 +1,6 @@
 {
   "name": "dsh-question-pin",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "main": "./index.js",
   "type": "module",
   "description": "你问过的问题会跟着滚动，一直悬浮在长回答旁边，随时知道自己当初问的是什么。",
