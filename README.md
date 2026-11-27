@@ -8,21 +8,21 @@
 
 - 在会话里往下滚，回答右侧会出现一张小卡片，内容是**当前这段回答对应的那个问题**——完整原文，不是截断的预览。
 - 滚动时卡片自动换成你正读到的那一段所回答的问题。
-- 卡片默认最多显示三行；更长的问题在卡片内部用细滚动条翻看，卡片高度不会影响正文。
+- 卡片里的问题正文默认显示最多三行，更长的问题在正文区域内部用细滚动条翻看；窗口很矮时正文区域会随之变矮，完整问题仍可通过滚动读全。
 - 卡片上有三个按钮：
   - **回到这个问题**：把那一轮问题滚回屏幕中间；
   - **复制问题**：把完整问题复制到剪贴板；
   - **收起**：收成一个小钉，只留序号。
 - 卡片不占正文空间、不随内容滚动；鼠标放在卡片上滚滚轮，卡片内容先滚，到边界后滚动交给聊天，不会卡住滚动。
 - 问题里的换行会保留；消息行上的时间、操作按钮等界面文字不会混进卡片。
-- 问题里带图片或文件时，卡片只显示缩略图或文件名：不带图片的界面文字，也不带文件类型和体积（`PDF 1.2 MB`）这些元信息；只有附件的提问同样会显示卡片。
+- 问题里带图片或文件时，卡片只显示缩略图或文件名：不带图片的界面文字，也不带文件类型和体积（`PDF 1.2 MB`）这些元信息；只有附件的提问同样会显示卡片。只有一张图片、且没有其它附件时它整宽显示；其余附件按缩略图或文件名排列，空间不够时会换行，超过前三项收进 `+N`。
 
 ## 细节
 
 - 只用 DSH 客户端公开的 slot（`conversation.input.overlay`）与行注解（`data-chat-anchor-key` / `data-chat-turn` / `data-conversation-scroll`），不覆盖任何自带 UI。
 - 卡片挂在 `document.body` 上（`position: fixed`），不会被消息流的滚动容器裁掉。
-- 颜色全部取自 DSH 主题 token（`--dsw-alias-*`），浅色/深色自动跟随；卡片高度上限按 DSH 正文字号计算，不会切掉半行。
-- 窗口太窄放不下正文旁边时，卡片自动改为贴右侧边缘；高度不足时最多只占屏幕一半。
+- 颜色全部取自 DSH 主题 token（`--dsw-alias-*`），浅色/深色自动跟随。
+- 窗口太窄放不下正文旁边时，卡片自动改为贴右侧边缘；卡片贴合视口，高度不足时正文在卡片内部滚动，不会把卡片撑出屏幕。
 - 没有新增任何全局快捷键，也不会抢聊天输入框的焦点。
 
 ## 安装
@@ -58,9 +58,9 @@ plugin_manager install_bundle  <本目录绝对路径>
 While you scroll through a long answer, the question you asked stays pinned next to it — the full original question, not a truncated preview.
 
 - Follows your reading position: it always shows the question that the visible part of the answer is replying to.
-- Three lines by default; longer questions scroll inside the card with a thin, theme-aware scrollbar.
+- The question text shows three lines by default; longer questions scroll inside the card with a thin, theme-aware scrollbar. The card stays within the viewport and scrolls the question text when space is tight.
 - Buttons: jump back to that question, copy it, or collapse to a small numbered pin.
-- Attachments in a question show up as a thumbnail or a file name only — no interface labels, no file type or size (`PDF 1.2 MB`). Questions that are nothing but an attachment still get a card.
+- Attachments in a question show up as a thumbnail or a file name only — no interface labels, no file type or size (`PDF 1.2 MB`). Questions that are nothing but an attachment still get a card. An image shown on its own keeps the full width; otherwise attachments appear as small thumbnails or file names, wrap when space runs out, and anything past the first three collapses into `+N`.
 - Pure addition: it uses the public `conversation.input.overlay` slot and chat row attributes, never replaces built-in UI.
 - Colors come from DSH theme tokens, so light and dark mode follow automatically.
 
